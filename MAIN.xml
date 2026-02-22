@@ -1,0 +1,363 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<project xmlns="http://www.plcopen.org/xml/tc6_0200">
+  <fileHeader companyName="Beckhoff Automation GmbH" productName="TwinCAT PLC Control" productVersion="3.5.21.20" creationDateTime="2026-02-22T17:48:59.3310756" />
+  <contentHeader name="PLC1" modificationDateTime="2026-02-22T17:48:59.3310756">
+    <coordinateInfo>
+      <fbd>
+        <scaling x="1" y="1" />
+      </fbd>
+      <ld>
+        <scaling x="1" y="1" />
+      </ld>
+      <sfc>
+        <scaling x="1" y="1" />
+      </sfc>
+    </coordinateInfo>
+    <addData>
+      <data name="http://www.3s-software.com/plcopenxml/projectinformation" handleUnknown="implementation">
+        <ProjectInformation />
+      </data>
+    </addData>
+  </contentHeader>
+  <types>
+    <dataTypes />
+    <pous>
+      <pou name="MAIN" pouType="program">
+        <interface>
+          <localVars>
+            <variable name="aRawData_ELM3004" address="%I*">
+              <type>
+                <array>
+                  <dimension lower="1" upper="100" />
+                  <baseType>
+                    <REAL />
+                  </baseType>
+                </array>
+              </type>
+              <documentation>
+                <xhtml xmlns="http://www.w3.org/1999/xhtml"> --- Hardware Inputs ---</xhtml>
+              </documentation>
+            </variable>
+            <variable name="bTrigger_HighSpeed">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="aRawData_ELM3344" address="%I*">
+              <type>
+                <array>
+                  <dimension lower="1" upper="10" />
+                  <baseType>
+                    <REAL />
+                  </baseType>
+                </array>
+              </type>
+            </variable>
+            <variable name="bTrigger_LowSpeed">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="bLamp_Busy_3004" address="%Q*">
+              <type>
+                <BOOL />
+              </type>
+              <documentation>
+                <xhtml xmlns="http://www.w3.org/1999/xhtml"> --- Hardware Outputs ---</xhtml>
+              </documentation>
+            </variable>
+            <variable name="bLamp_Error_3004" address="%Q*">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="bLamp_Busy_3344" address="%Q*">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="bLamp_Error_3344" address="%Q*">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="sConfig_FileDir">
+              <type>
+                <string />
+              </type>
+              <initialValue>
+                <simpleValue value="'C:\Users\101292\Desktop\RF\'" />
+              </initialValue>
+              <documentation>
+                <xhtml xmlns="http://www.w3.org/1999/xhtml"> --- Configuration ---</xhtml>
+              </documentation>
+            </variable>
+            <variable name="nConfig_MaxCycles">
+              <type>
+                <UDINT />
+              </type>
+              <initialValue>
+                <simpleValue value="100" />
+              </initialValue>
+            </variable>
+            <variable name="tConfig_MaxBatchTime">
+              <type>
+                <TIME />
+              </type>
+              <initialValue>
+                <simpleValue value="TIME#1m0s0ms" />
+              </initialValue>
+              <documentation>
+                <xhtml xmlns="http://www.w3.org/1999/xhtml"> CHANGED: 1 Minute for testing</xhtml>
+              </documentation>
+            </variable>
+            <variable name="tConfig_IdleTimeout">
+              <type>
+                <TIME />
+              </type>
+              <initialValue>
+                <simpleValue value="TIME#30m0s0ms" />
+              </initialValue>
+            </variable>
+            <variable name="stBatchGlobal">
+              <type>
+                <derived name="ST_BatchMetadata" />
+              </type>
+              <documentation>
+                <xhtml xmlns="http://www.w3.org/1999/xhtml"> --- Internal Objects ---</xhtml>
+              </documentation>
+            </variable>
+            <variable name="fbLogger_3004">
+              <type>
+                <derived name="FB_RingData" />
+              </type>
+            </variable>
+            <variable name="stConf_3004">
+              <type>
+                <derived name="ST_SensorMetadata" />
+              </type>
+            </variable>
+            <variable name="aBuffer_3004">
+              <type>
+                <array>
+                  <dimension lower="1" upper="100" />
+                  <baseType>
+                    <REAL />
+                  </baseType>
+                </array>
+              </type>
+            </variable>
+            <variable name="fbLogger_3344">
+              <type>
+                <derived name="FB_RingData" />
+              </type>
+            </variable>
+            <variable name="stConf_3344">
+              <type>
+                <derived name="ST_SensorMetadata" />
+              </type>
+            </variable>
+            <variable name="aBuffer_3344">
+              <type>
+                <array>
+                  <dimension lower="1" upper="100" />
+                  <baseType>
+                    <REAL />
+                  </baseType>
+                </array>
+              </type>
+            </variable>
+            <variable name="fbSim">
+              <type>
+                <derived name="FB_DataSimulation" />
+              </type>
+              <documentation>
+                <xhtml xmlns="http://www.w3.org/1999/xhtml"> --- Simulation ---</xhtml>
+              </documentation>
+            </variable>
+            <variable name="bSim">
+              <type>
+                <BOOL />
+              </type>
+              <initialValue>
+                <simpleValue value="FALSE" />
+              </initialValue>
+              <documentation>
+                <xhtml xmlns="http://www.w3.org/1999/xhtml"> CHANGED: Default TRUE for testing</xhtml>
+              </documentation>
+            </variable>
+            <variable name="i">
+              <type>
+                <INT />
+              </type>
+            </variable>
+            <addData>
+              <data name="http://www.3s-software.com/plcopenxml/interfaceasplaintext" handleUnknown="implementation">
+                <InterfaceAsPlainText>
+                  <xhtml xmlns="http://www.w3.org/1999/xhtml">PROGRAM MAIN
+VAR
+    // --- Hardware Inputs ---
+    aRawData_ELM3004 AT %I* : ARRAY[1..100] OF REAL; 
+    bTrigger_HighSpeed      : BOOL;
+    
+    aRawData_ELM3344 AT %I* : ARRAY[1..10] OF REAL; 
+    bTrigger_LowSpeed       : BOOL;
+    
+    // --- Hardware Outputs ---
+    bLamp_Busy_3004 AT %Q*  : BOOL; 
+    bLamp_Error_3004 AT %Q* : BOOL;
+    bLamp_Busy_3344 AT %Q*  : BOOL; 
+    bLamp_Error_3344 AT %Q* : BOOL;
+    
+    // --- Configuration ---
+    sConfig_FileDir         : STRING := 'C:\Users\101292\Desktop\RF\';
+    nConfig_MaxCycles       : UDINT := 100;     
+    tConfig_MaxBatchTime    : TIME := T#1M;     // CHANGED: 1 Minute for testing
+    tConfig_IdleTimeout     : TIME := T#30M;    
+    
+    // --- Internal Objects ---
+    stBatchGlobal           : ST_BatchMetadata; 
+    
+    fbLogger_3004   : FB_RingData;
+    stConf_3004     : ST_SensorMetadata;
+    aBuffer_3004    : ARRAY[1..100] OF REAL; 
+    
+    fbLogger_3344   : FB_RingData;
+    stConf_3344     : ST_SensorMetadata;
+    aBuffer_3344    : ARRAY[1..100] OF REAL; 
+
+    // --- Simulation ---
+    fbSim           : FB_DataSimulation;
+    bSim            : BOOL := FALSE; // CHANGED: Default TRUE for testing
+    i               : INT;
+END_VAR</xhtml>
+                </InterfaceAsPlainText>
+              </data>
+            </addData>
+          </localVars>
+        </interface>
+        <body>
+          <ST>
+            <xhtml xmlns="http://www.w3.org/1999/xhtml">// ---------------------------------------------------------
+// 0. Simulation
+// ---------------------------------------------------------
+fbSim(bEnable := bSim);
+IF bSim THEN
+     aRawData_ELM3004   := fbSim.aSim_ELM3004;
+     aRawData_ELM3344   := fbSim.aSim_ELM3344;
+     bTrigger_HighSpeed := fbSim.bSimTrigger;
+     bTrigger_LowSpeed  := fbSim.bSimTrigger;
+END_IF
+
+// ---------------------------------------------------------
+// 1. Initialize
+// ---------------------------------------------------------
+stBatchGlobal.sOrderNumberSAP := 'ORDER_999';
+
+// ---------------------------------------------------------
+// 2. Logger 3004
+// ---------------------------------------------------------
+stConf_3004.sInputModule := 'ELM3004';
+stConf_3004.sSensorUnit  := 'G';
+stConf_3004.fIncrement   := 0.0001;
+aBuffer_3004 := aRawData_ELM3004; 
+
+fbLogger_3004(
+    bTrigger            := bTrigger_HighSpeed,
+    aValues             := aBuffer_3004,
+    nOversamples        := 100,
+    sFileDir            := sConfig_FileDir,
+    nMaxTrigCycles      := nConfig_MaxCycles,
+    tMaxBatchTime       := tConfig_MaxBatchTime,
+    tIdleTimeout        := tConfig_IdleTimeout,
+    stBatchInfo         := stBatchGlobal,
+    stSensorInfo        := stConf_3004
+);
+
+bLamp_Busy_3004  := fbLogger_3004.bBusy;
+bLamp_Error_3004 := fbLogger_3004.bError;
+
+// ---------------------------------------------------------
+// 3. Logger 3344
+// ---------------------------------------------------------
+stConf_3344.sInputModule := 'ELM3344';
+stConf_3344.sSensorUnit  := 'C';
+stConf_3344.fIncrement   := 0.001; 
+FOR i := 1 TO 10 DO aBuffer_3344[i] := aRawData_ELM3344[i]; END_FOR
+
+fbLogger_3344(
+    bTrigger            := bTrigger_LowSpeed,
+    aValues             := aBuffer_3344,
+    nOversamples        := 10,
+    sFileDir            := sConfig_FileDir,
+    nMaxTrigCycles      := nConfig_MaxCycles,
+    tMaxBatchTime       := tConfig_MaxBatchTime,
+    tIdleTimeout        := tConfig_IdleTimeout,
+    stBatchInfo         := stBatchGlobal,
+    stSensorInfo        := stConf_3344
+);
+
+bLamp_Busy_3344  := fbLogger_3344.bBusy;
+bLamp_Error_3344 := fbLogger_3344.bError;</xhtml>
+          </ST>
+        </body>
+        <addData>
+          <data name="http://www.3s-software.com/plcopenxml/interfaceasplaintext" handleUnknown="implementation">
+            <InterfaceAsPlainText>
+              <xhtml xmlns="http://www.w3.org/1999/xhtml">PROGRAM MAIN
+VAR
+    // --- Hardware Inputs ---
+    aRawData_ELM3004 AT %I* : ARRAY[1..100] OF REAL; 
+    bTrigger_HighSpeed      : BOOL;
+    
+    aRawData_ELM3344 AT %I* : ARRAY[1..10] OF REAL; 
+    bTrigger_LowSpeed       : BOOL;
+    
+    // --- Hardware Outputs ---
+    bLamp_Busy_3004 AT %Q*  : BOOL; 
+    bLamp_Error_3004 AT %Q* : BOOL;
+    bLamp_Busy_3344 AT %Q*  : BOOL; 
+    bLamp_Error_3344 AT %Q* : BOOL;
+    
+    // --- Configuration ---
+    sConfig_FileDir         : STRING := 'C:\Users\101292\Desktop\RF\';
+    nConfig_MaxCycles       : UDINT := 100;     
+    tConfig_MaxBatchTime    : TIME := T#1M;     // CHANGED: 1 Minute for testing
+    tConfig_IdleTimeout     : TIME := T#30M;    
+    
+    // --- Internal Objects ---
+    stBatchGlobal           : ST_BatchMetadata; 
+    
+    fbLogger_3004   : FB_RingData;
+    stConf_3004     : ST_SensorMetadata;
+    aBuffer_3004    : ARRAY[1..100] OF REAL; 
+    
+    fbLogger_3344   : FB_RingData;
+    stConf_3344     : ST_SensorMetadata;
+    aBuffer_3344    : ARRAY[1..100] OF REAL; 
+
+    // --- Simulation ---
+    fbSim           : FB_DataSimulation;
+    bSim            : BOOL := FALSE; // CHANGED: Default TRUE for testing
+    i               : INT;
+END_VAR</xhtml>
+            </InterfaceAsPlainText>
+          </data>
+          <data name="http://www.3s-software.com/plcopenxml/objectid" handleUnknown="discard">
+            <ObjectId>551f1c68-9f6b-4b62-a040-f91b07ac7335</ObjectId>
+          </data>
+        </addData>
+      </pou>
+    </pous>
+  </types>
+  <instances>
+    <configurations />
+  </instances>
+  <addData>
+    <data name="http://www.3s-software.com/plcopenxml/projectstructure" handleUnknown="discard">
+      <ProjectStructure>
+        <Object Name="MAIN" ObjectId="551f1c68-9f6b-4b62-a040-f91b07ac7335" />
+      </ProjectStructure>
+    </data>
+  </addData>
+</project>

@@ -117,10 +117,12 @@ class STEditor(tk.Frame):
 
         self._vsb = vsb
 
-        self._text.bind("<KeyRelease>", self._schedule_highlight)
+        self._text.bind("<KeyRelease>", self._on_key_release)
+        self._text.bind("<<Paste>>",    self._on_paste)
         self._text.bind("<MouseWheel>", lambda e: self._redraw_line_numbers())
-        self._text.bind("<Configure>", lambda e: self._redraw_line_numbers())
+        self._text.bind("<Configure>",  lambda e: self._redraw_line_numbers())
         self._ln_canvas.bind("<Button-1>", lambda e: self._text.focus_set())
+        self._change_callback = None
 
     def _configure_tags(self):
         t = self._text
@@ -147,6 +149,22 @@ class STEditor(tk.Frame):
     # ------------------------------------------------------------------
     # Public interface
     # ------------------------------------------------------------------
+
+    def set_change_callback(self, fn):
+        """Register a function to call whenever the editor content changes."""
+        self._change_callback = fn
+
+    def _fire_change(self):
+        if self._change_callback:
+            self._change_callback(self.get_text())
+
+    def _on_key_release(self, event=None):
+        self._schedule_highlight()
+        self._fire_change()
+
+    def _on_paste(self, event=None):
+        # Paste happens after this event, so schedule the callback slightly later
+        self.after(10, self._fire_change)
 
     def set_text(self, text: str):
         self._text.config(state=tk.NORMAL)
@@ -232,8 +250,8 @@ class STEditor(tk.Frame):
         # Method header lines
         self._apply_regex(text, r'^// Method:.*$', "method_header", re.MULTILINE)
 
-        # FB body marker
-        self._apply_regex(text, r'^// === FB Body ===$', "fb_body_marker", re.MULTILINE)
+        # Body markers (FB and PROGRAM)
+        self._apply_regex(text, r'^// === (?:FB|PROGRAM) Body ===$', "fb_body_marker", re.MULTILINE)
 
         self._redraw_line_numbers()
 

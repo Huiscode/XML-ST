@@ -1,0 +1,289 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<project xmlns="http://www.plcopen.org/xml/tc6_0200">
+  <fileHeader companyName="Beckhoff Automation GmbH" productName="TwinCAT PLC Control" productVersion="3.5.21.20" creationDateTime="2026-02-22T20:31:08.7448772" />
+  <contentHeader name="PLC1" modificationDateTime="2026-02-22T20:31:08.7448772">
+    <coordinateInfo>
+      <fbd>
+        <scaling x="1" y="1" />
+      </fbd>
+      <ld>
+        <scaling x="1" y="1" />
+      </ld>
+      <sfc>
+        <scaling x="1" y="1" />
+      </sfc>
+    </coordinateInfo>
+    <addData>
+      <data name="http://www.3s-software.com/plcopenxml/projectinformation" handleUnknown="implementation">
+        <ProjectInformation />
+      </data>
+    </addData>
+  </contentHeader>
+  <types>
+    <dataTypes />
+    <pous>
+      <pou name="FB_DataSimulation" pouType="functionBlock">
+        <interface>
+          <inputVars>
+            <variable name="bEnable">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <addData>
+              <data name="http://www.3s-software.com/plcopenxml/interfaceasplaintext" handleUnknown="implementation">
+                <InterfaceAsPlainText>
+                  <xhtml xmlns="http://www.w3.org/1999/xhtml">FUNCTION_BLOCK FB_DataSimulation
+VAR_INPUT
+bEnable           : BOOL;
+END_VAR
+VAR_OUTPUT
+aSim_ELM3004      : ARRAY[1..100] OF REAL; // Simulated Vibration (3 decimals)
+aSim_ELM3344      : ARRAY[1..10] OF REAL;  // Simulated Temperature (3 decimals)
+bSimTrigger       : BOOL;                  // Simulated Machine Cycle
+END_VAR
+VAR
+fbTimer           : TON;
+nState            : INT := 0;
+fPhase            : REAL := 0.0;
+i                 : INT;
+fRandom0to1       : REAL;
+fRawValue         : REAL; // Temporary variable for rounding calculation
+END_VAR
+</xhtml>
+                </InterfaceAsPlainText>
+              </data>
+            </addData>
+          </inputVars>
+          <outputVars>
+            <variable name="aSim_ELM3004">
+              <type>
+                <array>
+                  <dimension lower="1" upper="100" />
+                  <baseType>
+                    <REAL />
+                  </baseType>
+                </array>
+              </type>
+              <documentation>
+                <xhtml xmlns="http://www.w3.org/1999/xhtml"> Simulated Vibration (3 decimals)</xhtml>
+              </documentation>
+            </variable>
+            <variable name="aSim_ELM3344">
+              <type>
+                <array>
+                  <dimension lower="1" upper="10" />
+                  <baseType>
+                    <REAL />
+                  </baseType>
+                </array>
+              </type>
+              <documentation>
+                <xhtml xmlns="http://www.w3.org/1999/xhtml"> Simulated Temperature (3 decimals)</xhtml>
+              </documentation>
+            </variable>
+            <variable name="bSimTrigger">
+              <type>
+                <BOOL />
+              </type>
+              <documentation>
+                <xhtml xmlns="http://www.w3.org/1999/xhtml"> Simulated Machine Cycle</xhtml>
+              </documentation>
+            </variable>
+            <addData>
+              <data name="http://www.3s-software.com/plcopenxml/interfaceasplaintext" handleUnknown="implementation">
+                <InterfaceAsPlainText>
+                  <xhtml xmlns="http://www.w3.org/1999/xhtml">FUNCTION_BLOCK FB_DataSimulation
+VAR_INPUT
+bEnable           : BOOL;
+END_VAR
+VAR_OUTPUT
+aSim_ELM3004      : ARRAY[1..100] OF REAL; // Simulated Vibration (3 decimals)
+aSim_ELM3344      : ARRAY[1..10] OF REAL;  // Simulated Temperature (3 decimals)
+bSimTrigger       : BOOL;                  // Simulated Machine Cycle
+END_VAR
+VAR
+fbTimer           : TON;
+nState            : INT := 0;
+fPhase            : REAL := 0.0;
+i                 : INT;
+fRandom0to1       : REAL;
+fRawValue         : REAL; // Temporary variable for rounding calculation
+END_VAR
+</xhtml>
+                </InterfaceAsPlainText>
+              </data>
+            </addData>
+          </outputVars>
+          <localVars>
+            <variable name="fbTimer">
+              <type>
+                <derived name="TON" />
+              </type>
+            </variable>
+            <variable name="nState">
+              <type>
+                <INT />
+              </type>
+              <initialValue>
+                <simpleValue value="0" />
+              </initialValue>
+            </variable>
+            <variable name="fPhase">
+              <type>
+                <REAL />
+              </type>
+              <initialValue>
+                <simpleValue value="0.0" />
+              </initialValue>
+            </variable>
+            <variable name="i">
+              <type>
+                <INT />
+              </type>
+            </variable>
+            <variable name="fRandom0to1">
+              <type>
+                <REAL />
+              </type>
+            </variable>
+            <variable name="fRawValue">
+              <type>
+                <REAL />
+              </type>
+              <documentation>
+                <xhtml xmlns="http://www.w3.org/1999/xhtml"> Temporary variable for rounding calculation</xhtml>
+              </documentation>
+            </variable>
+            <addData>
+              <data name="http://www.3s-software.com/plcopenxml/interfaceasplaintext" handleUnknown="implementation">
+                <InterfaceAsPlainText>
+                  <xhtml xmlns="http://www.w3.org/1999/xhtml">FUNCTION_BLOCK FB_DataSimulation
+VAR_INPUT
+bEnable           : BOOL;
+END_VAR
+VAR_OUTPUT
+aSim_ELM3004      : ARRAY[1..100] OF REAL; // Simulated Vibration (3 decimals)
+aSim_ELM3344      : ARRAY[1..10] OF REAL;  // Simulated Temperature (3 decimals)
+bSimTrigger       : BOOL;                  // Simulated Machine Cycle
+END_VAR
+VAR
+fbTimer           : TON;
+nState            : INT := 0;
+fPhase            : REAL := 0.0;
+i                 : INT;
+fRandom0to1       : REAL;
+fRawValue         : REAL; // Temporary variable for rounding calculation
+END_VAR
+</xhtml>
+                </InterfaceAsPlainText>
+              </data>
+            </addData>
+          </localVars>
+        </interface>
+        <body>
+          <ST>
+            <xhtml xmlns="http://www.w3.org/1999/xhtml">
+// ---------------------------------------------------------
+// 0. Handle Disable State (Reset Outputs)
+// ---------------------------------------------------------
+IF NOT bEnable THEN
+    bSimTrigger := FALSE;
+    // Zero out arrays to indicate inactive simulation
+    FOR i := 1 TO 100 DO aSim_ELM3004[i] := 0.0; END_FOR
+    FOR i := 1 TO 10 DO aSim_ELM3344[i] := 0.0; END_FOR
+    RETURN;
+END_IF
+
+// ---------------------------------------------------------
+// 1. Trigger State Machine (Simulate Machine Cycle)
+//    Cycle: 2s OFF (Idle) -&gt; 3s ON (Stroke) -&gt; Repeat
+// ---------------------------------------------------------
+CASE nState OF
+0: // Idle (Trigger OFF)
+    bSimTrigger := FALSE;
+    fbTimer(IN := TRUE, PT := T#2S);
+    IF fbTimer.Q THEN
+        fbTimer(IN := FALSE); // Reset timer
+        nState := 1;
+    END_IF
+    
+1: // Stroke (Trigger ON)
+    bSimTrigger := TRUE;
+    fbTimer(IN := TRUE, PT := T#3S);
+    IF fbTimer.Q THEN
+        fbTimer(IN := FALSE); // Reset timer
+        nState := 0;
+    END_IF
+END_CASE
+
+// Update Phase for signal generation (Continuous increment)
+fPhase := fPhase + 0.1;
+IF fPhase &gt; 10000.0 THEN fPhase := 0.0; END_IF
+
+// ---------------------------------------------------------
+// 2. Simulate ELM3004 (Vibration - Sine Wave)
+//    Generates fake oversampled vibration data
+// ---------------------------------------------------------
+FOR i := 1 TO 100 DO
+    // Calculate raw Sine wave (-5.0 to +5.0)
+    fRawValue := SIN(fPhase + (INT_TO_REAL(i) * 0.1)) * 5.0;
+    // Round to 3 decimal places
+    aSim_ELM3004[i] := DINT_TO_REAL(REAL_TO_DINT(fRawValue * 1000.0)) / 1000.0;
+END_FOR
+
+// ---------------------------------------------------------
+// 3. Simulate ELM3344 (Temperature - Random Walk)
+//    Generates fake temperature data around 21.5C
+// ---------------------------------------------------------
+FOR i := 1 TO 10 DO
+    // Generate Pseudo-Random 0.0 to 1.0 based on phase and index
+    fRandom0to1 := ABS(SIN(fPhase * 13.0 + INT_TO_REAL(i) * 71.0));
+    // Scale: 19.0 + (0..1 * 4.999) = 19.000 .. 23.999
+    fRawValue := 19.0 + (fRandom0to1 * 4.999);
+    // Round to 3 decimal places
+    aSim_ELM3344[i] := DINT_TO_REAL(REAL_TO_DINT(fRawValue * 1000.0)) / 1000.0;
+END_FOR</xhtml>
+          </ST>
+        </body>
+        <addData>
+          <data name="http://www.3s-software.com/plcopenxml/interfaceasplaintext" handleUnknown="implementation">
+            <InterfaceAsPlainText>
+              <xhtml xmlns="http://www.w3.org/1999/xhtml">FUNCTION_BLOCK FB_DataSimulation
+VAR_INPUT
+bEnable           : BOOL;
+END_VAR
+VAR_OUTPUT
+aSim_ELM3004      : ARRAY[1..100] OF REAL; // Simulated Vibration (3 decimals)
+aSim_ELM3344      : ARRAY[1..10] OF REAL;  // Simulated Temperature (3 decimals)
+bSimTrigger       : BOOL;                  // Simulated Machine Cycle
+END_VAR
+VAR
+fbTimer           : TON;
+nState            : INT := 0;
+fPhase            : REAL := 0.0;
+i                 : INT;
+fRandom0to1       : REAL;
+fRawValue         : REAL; // Temporary variable for rounding calculation
+END_VAR
+</xhtml>
+            </InterfaceAsPlainText>
+          </data>
+          <data name="http://www.3s-software.com/plcopenxml/objectid" handleUnknown="discard">
+            <ObjectId>432e4c37-27a5-4211-a6c1-91e64dde37d3</ObjectId>
+          </data>
+        </addData>
+      </pou>
+    </pous>
+  </types>
+  <instances>
+    <configurations />
+  </instances>
+  <addData>
+    <data name="http://www.3s-software.com/plcopenxml/projectstructure" handleUnknown="discard">
+      <ProjectStructure>
+        <Object Name="FB_DataSimulation" ObjectId="432e4c37-27a5-4211-a6c1-91e64dde37d3" />
+      </ProjectStructure>
+    </data>
+  </addData>
+</project>

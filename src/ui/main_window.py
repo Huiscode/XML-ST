@@ -5,6 +5,7 @@ Main application window.
 Layout: header bar | horizontal split (ST editor | XML preview) | status bar
 """
 
+import json
 import os
 import sys
 import tkinter as tk
@@ -13,7 +14,7 @@ from tkinter import ttk, filedialog, messagebox
 # Ensure src/ is on the path when run from ui/
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from xml_parser import load_xml, patch_xml, ParsedXML
+from xml_parser import load_xml, patch_xml, ParsedXML, detect_st_type, build_xml_from_st
 from st_formatter import format_st
 from st_splitter import split_st
 from ui.editor_widget import STEditor
@@ -50,6 +51,8 @@ class MainWindow:
 
         self._parsed: ParsedXML | None = None
         self._current_path: str = ""
+        self._config_path = os.path.join(os.path.expanduser("~"), ".xml_st_converter.json")
+        self._last_dir: str = self._load_last_dir()
 
         self._build_ui()
         self._bind_shortcuts()
@@ -72,10 +75,10 @@ class MainWindow:
 
         # Type badge (FB / DUT)
         self._type_badge = tk.Label(
-            header, text="", width=6,
+            header, text="", width=10,
             font=("Segoe UI", 10, "bold"),
             fg=PALETTE["btn_text"], bg=PALETTE["border"],
-            relief="flat", padx=6, pady=2
+            relief="flat", padx=10, pady=2
         )
         self._type_badge.pack(side=tk.LEFT, padx=(14, 0))
 
@@ -84,15 +87,17 @@ class MainWindow:
         btn_frame.pack(side=tk.RIGHT)
 
         self._btn_open    = self._make_btn(btn_frame, "Open XML",  self._open_file,      icon="📂")
+        self._btn_open_st = self._make_btn(btn_frame, "Open ST",   self._open_st,        icon="📂")
         self._btn_to_xml  = self._make_btn(btn_frame, "ST → XML",  self._convert_to_xml, icon="⚙",  state=tk.DISABLED)
         self._btn_save    = self._make_btn(btn_frame, "Save XML",  self._save_xml,       icon="💾", state=tk.DISABLED)
         self._btn_copy    = self._make_btn(btn_frame, "Copy XML",  self._copy_xml,       icon="📋", state=tk.DISABLED)
-        self._btn_copy_st = self._make_btn(btn_frame, "Copy ST",   self._copy_st,        icon="📄", state=tk.DISABLED)
+        self._btn_copy_st = self._make_btn(btn_frame, "Save ST",    self._save_st,        icon="📄", state=tk.DISABLED)
+        self._btn_clip_st = self._make_btn(btn_frame, "Copy ST",   self._copy_st,        icon="📋", state=tk.DISABLED)
         self._btn_clear   = self._make_btn(btn_frame, "Clear All", self._clear_all,      icon="🗑",  state=tk.DISABLED,
                                            bg=PALETTE["border"], hover=PALETTE["error"])
 
-        for b in (self._btn_open, self._btn_to_xml, self._btn_save,
-                  self._btn_copy, self._btn_copy_st, self._btn_clear):
+        for b in (self._btn_open, self._btn_open_st, self._btn_to_xml, self._btn_save,
+                  self._btn_copy, self._btn_copy_st, self._btn_clip_st, self._btn_clear):
             b.pack(side=tk.LEFT, padx=4)
 
         # ---- File path bar ----
@@ -134,6 +139,7 @@ class MainWindow:
         # Left: ST editor
         left_frame = tk.Frame(pane, bg=PALETTE["panel"])
         self._st_editor = STEditor(left_frame, PALETTE)
+        self._st_editor.set_change_callback(self._on_editor_change)
         self._st_editor.pack(fill=tk.BOTH, expand=True)
         pane.add(left_frame, minsize=400, stretch="always")
 
@@ -160,7 +166,7 @@ class MainWindow:
 
         # Shortcut hint on the right of status bar
         tk.Label(
-            status_bar, text="Ctrl+O  Open   |   Ctrl+Return  Convert   |   Ctrl+S  Save   |   Ctrl+T  Copy ST",
+            status_bar, text="Ctrl+O  Open   |   Ctrl+Return  Convert   |   Ctrl+S  Save   |   Ctrl+T  Save ST.txt",
             fg=PALETTE["text_muted"], bg=PALETTE["panel"],
             font=("Segoe UI", 8), padx=10
         ).pack(side=tk.RIGHT)
@@ -213,7 +219,8 @@ class MainWindow:
             activeforeground=PALETTE["btn_text"],
             activebackground=hover_color,
             relief="flat",
-            padx=12, pady=5,
+            width=11,
+            padx=6, pady=2,
             cursor="hand2",
         )
         btn.bind("<Enter>", lambda e, h=hover_color: btn.config(bg=h))
@@ -230,22 +237,97 @@ class MainWindow:
         self.root.bind("<Control-Return>", lambda e: self._convert_to_xml())
         self.root.bind("<Control-s>", lambda e: self._save_xml())
         self.root.bind("<Control-S>", lambda e: self._save_xml())
-        self.root.bind("<Control-t>", lambda e: self._copy_st())
-        self.root.bind("<Control-T>", lambda e: self._copy_st())
+        self.root.bind("<Control-t>", lambda e: self._save_st())
+        self.root.bind("<Control-T>", lambda e: self._save_st())
+
+    # ------------------------------------------------------------------
+    # Editor content change callback
+    # ------------------------------------------------------------------
+
+    def _on_editor_change(self, text: str):
+        """Called whenever the ST editor content changes (key, paste, etc.)."""
+        has_text = bool(text.strip())
+        state = tk.NORMAL if has_text else tk.DISABLED
+        self._btn_to_xml.config(state=state)
+        self._btn_copy_st.config(state=state)
+        self._btn_clip_st.config(state=state)
+        self._btn_clear.config(state=state)
+
+        # Update type badge from text content when no file is loaded
+        if not self._parsed and has_text:
+            import re
+            if re.search(r'^\s*FUNCTION_BLOCK\b', text, re.MULTILINE | re.IGNORECASE):
+                label, color = "FB", "#4a90d9"
+            elif re.search(r'^\s*PROGRAM\b', text, re.MULTILINE | re.IGNORECASE):
+                label, color = "PROG", "#2e7d32"
+            elif re.search(r'^\s*TYPE\b', text, re.MULTILINE | re.IGNORECASE):
+                label, color = "DUT", "#7e57c2"
+            else:
+                label, color = "", PALETTE["border"]
+            self._type_badge.config(text=f"  {label}  " if label else "", bg=color)
 
     # ------------------------------------------------------------------
     # Actions
     # ------------------------------------------------------------------
 
+    def _load_last_dir(self) -> str:
+        try:
+            with open(self._config_path, "r", encoding="utf-8") as f:
+                return json.load(f).get("last_dir", ".")
+        except Exception:
+            return "."
+
+    def _save_last_dir(self, path: str):
+        try:
+            with open(self._config_path, "w", encoding="utf-8") as f:
+                json.dump({"last_dir": os.path.dirname(path)}, f)
+        except Exception:
+            pass
+
     def _open_file(self):
+        initial = os.path.dirname(self._current_path) if self._current_path else self._last_dir
         path = filedialog.askopenfilename(
             title="Open TwinCAT XML Export",
             filetypes=[("PLCopen XML", "*.xml"), ("All files", "*.*")],
-            initialdir=os.path.dirname(self._current_path) if self._current_path else "."
+            initialdir=initial,
         )
         if not path:
             return
         self._load(path)
+
+    def _open_st(self):
+        initial = os.path.dirname(self._current_path) if self._current_path else self._last_dir
+        path = filedialog.askopenfilename(
+            title="Open ST Text File",
+            filetypes=[("Text / ST files", "*.txt *.st *.TXT *.ST"),
+                       ("All files", "*.*")],
+            initialdir=initial,
+        )
+        if not path:
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                text = f.read()
+        except Exception as exc:
+            self._set_status(f"Error opening ST file: {exc}", error=True)
+            messagebox.showerror("Open Error", str(exc))
+            return
+
+        # Keep self._parsed if one is already loaded — the user may want to
+        # patch new ST text back into the existing XML structure via ST → XML.
+        self._output_xml = ""
+        self._save_last_dir(path)
+        self._path_var.set(path)
+        self._set_xml_view("")
+        self._st_editor.set_text(text)
+        self._on_editor_change(text)  # update badge + button states immediately
+
+        self._btn_save.config(state=tk.DISABLED)
+        self._btn_copy.config(state=tk.DISABLED)
+        self._btn_clear.config(state=tk.NORMAL)
+
+        fname = os.path.basename(path)
+        self._set_status(f"Opened  {fname}  — ST text loaded into editor.")
 
     def _load(self, path: str):
         try:
@@ -256,10 +338,12 @@ class MainWindow:
             return
 
         self._current_path = path
+        self._save_last_dir(path)
         self._path_var.set(path)
 
         # Update type badge
-        badge_color = "#4a90d9" if self._parsed.xml_type == "FB" else "#7e57c2"
+        badge_colors = {"FB": "#4a90d9", "PROGRAM": "#2e7d32", "DUT": "#7e57c2"}
+        badge_color = badge_colors.get(self._parsed.xml_type, PALETTE["border"])
         self._type_badge.config(
             text=f"  {self._parsed.xml_type}  ",
             bg=badge_color
@@ -276,6 +360,7 @@ class MainWindow:
         # Enable buttons
         self._btn_to_xml.config(state=tk.NORMAL)
         self._btn_copy_st.config(state=tk.NORMAL)
+        self._btn_clip_st.config(state=tk.NORMAL)
         self._btn_clear.config(state=tk.NORMAL)
         self._btn_save.config(state=tk.DISABLED)
         self._btn_copy.config(state=tk.DISABLED)
@@ -287,10 +372,55 @@ class MainWindow:
         )
 
     def _convert_to_xml(self):
+        st_text = self._st_editor.get_text()
+
         if self._parsed is None:
+            # No XML template — build XML from scratch using the ST text.
+            try:
+                xml_type, pou_name = detect_st_type(st_text)
+            except ValueError as exc:
+                self._set_status(str(exc), error=True)
+                messagebox.showerror("Detection Error", str(exc))
+                return
+
+            try:
+                split = split_st(st_text, xml_type)
+            except Exception as exc:
+                self._set_status(f"Parse error: {exc}", error=True)
+                messagebox.showerror("ST Parse Error", str(exc))
+                return
+
+            try:
+                if xml_type == "DUT":
+                    patched = build_xml_from_st(xml_type, pou_name,
+                                               split.declaration, "", [])
+                else:
+                    patched = build_xml_from_st(xml_type, pou_name,
+                                               split.declaration, split.body,
+                                               split.methods)
+            except Exception as exc:
+                self._set_status(f"XML build error: {exc}", error=True)
+                messagebox.showerror("XML Build Error", str(exc))
+                return
+
+            # Update type badge
+            badge_colors = {"FB": "#4a90d9", "PROGRAM": "#2e7d32", "DUT": "#7e57c2"}
+            self._type_badge.config(
+                text=f"  {xml_type}  ",
+                bg=badge_colors.get(xml_type, PALETTE["border"])
+            )
+
+            self._output_xml = patched
+            self._set_xml_view(patched)
+            self._btn_save.config(state=tk.NORMAL)
+            self._btn_copy.config(state=tk.NORMAL)
+            self._set_status(
+                f"Built XML for {pou_name} [{xml_type}] — review, then Save.",
+                success=True
+            )
             return
 
-        st_text = self._st_editor.get_text()
+        # Template loaded — patch ST into the existing XML structure.
         try:
             split = split_st(st_text, self._parsed.xml_type)
         except Exception as exc:
@@ -355,6 +485,28 @@ class MainWindow:
         self.root.clipboard_append(self._output_xml)
         self._set_status("XML copied to clipboard.", success=True)
 
+    def _save_st(self):
+        text = self._st_editor.get_text()
+        if not text:
+            return
+        base = os.path.splitext(os.path.basename(self._current_path))[0] if self._current_path else "output"
+        path = filedialog.asksaveasfilename(
+            title="Save ST as text file",
+            defaultextension=".txt",
+            filetypes=[("Text file", "*.txt"), ("All files", "*.*")],
+            initialfile=f"{base}.txt",
+            initialdir=os.path.dirname(self._current_path) if self._current_path else ".",
+        )
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(text)
+            self._set_status(f"ST saved → {path}", success=True)
+        except Exception as exc:
+            self._set_status(f"Save error: {exc}", error=True)
+            messagebox.showerror("Save Error", str(exc))
+
     def _copy_st(self):
         text = self._st_editor.get_text()
         if not text:
@@ -374,7 +526,7 @@ class MainWindow:
         self._type_badge.config(text="", bg=PALETTE["border"])
 
         for btn in (self._btn_to_xml, self._btn_save,
-                    self._btn_copy, self._btn_copy_st, self._btn_clear):
+                    self._btn_copy, self._btn_copy_st, self._btn_clip_st, self._btn_clear):
             btn.config(state=tk.DISABLED)
 
         self._set_status("Cleared — open an XML file to begin.")

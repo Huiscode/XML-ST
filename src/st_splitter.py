@@ -23,7 +23,8 @@ HEADER_PATTERN = re.compile(
     r'^// Method:\s*(?P<name>\S+)\s*\|\s*(?P<access>\S+)\s*\|\s*(?P<ret>.+?)\s*$',
     re.MULTILINE
 )
-FB_BODY_MARKER = "// === FB Body ==="
+FB_BODY_MARKER      = "// === FB Body ==="
+PROGRAM_BODY_MARKER = "// === PROGRAM Body ==="
 
 
 class SplitResult:
@@ -95,15 +96,23 @@ def split_st(text: str, xml_type: str) -> SplitResult:
 
 
 def _split_decl_body(text: str, result: SplitResult) -> None:
-    """Split pre-divider text into FB declaration and FB body."""
-    marker_idx = text.find(FB_BODY_MARKER)
+    """Split pre-divider text into declaration and body."""
+    marker_len = 0
+    marker_idx = -1
+    for marker in (FB_BODY_MARKER, PROGRAM_BODY_MARKER):
+        idx = text.find(marker)
+        if idx != -1:
+            marker_idx = idx
+            marker_len = len(marker)
+            break
+
     if marker_idx == -1:
         result.declaration = text.strip()
         result.body = ""
         return
 
     decl_part = text[:marker_idx].rstrip()
-    body_part = text[marker_idx + len(FB_BODY_MARKER):].lstrip("\n")
+    body_part = text[marker_idx + marker_len:].lstrip("\n")
 
     result.declaration = decl_part
     result.body = body_part.rstrip()

@@ -5,14 +5,17 @@ Loads TwinCAT 3 PLCopen XML exports, extracts editable ST content,
 and patches modified ST content back — preserving the exact original
 XML bytes for round-trip fidelity.
 
-Supports two XML types:
-  - FB  (Function Block):  <pous><pou pouType="functionBlock">
-  - DUT (Data Type/Struct): <dataTypes><dataType>
+Supports three XML types:
+  - FB      (Function Block):  <pous><pou pouType="functionBlock">
+  - PROGRAM (Program):         <pous><pou pouType="program">
+  - DUT     (Data Type/Struct): <dataTypes><dataType>
 """
 
 import re
 import html
+import uuid
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Optional
 
 
@@ -34,8 +37,8 @@ class ParsedXML:
     xml_type: str            # "FB" or "DUT"
     raw_bytes: bytes         # original file bytes (UTF-8)
 
-    # FB fields
-    fb_declaration: str = ""   # full FUNCTION_BLOCK ... END_VAR text
+    # FB / PROGRAM fields
+    fb_declaration: str = ""   # full FUNCTION_BLOCK/PROGRAM ... END_VAR text
     fb_body: str = ""          # main body ST code
     methods: list = field(default_factory=list)  # list[MethodInfo]
 
@@ -188,6 +191,41 @@ def _parse_fb(raw: str) -> ParsedXML:
 
 
 # ---------------------------------------------------------------------------
+# PROGRAM XML parser
+# ---------------------------------------------------------------------------
+
+def _parse_program(raw: str) -> ParsedXML:
+    """Parse a Program POU XML export (no methods, just declaration + body)."""
+
+    ipt_pattern = re.compile(
+        r'<InterfaceAsPlainText>\s*<xhtml[^>]*>(.*?)</xhtml>\s*</InterfaceAsPlainText>',
+        re.DOTALL
+    )
+    ipt_matches = list(ipt_pattern.finditer(raw))
+    if not ipt_matches:
+        raise ValueError("No InterfaceAsPlainText found in PROGRAM XML")
+
+    fb_declaration = _unescape(ipt_matches[0].group(1))
+
+    body_pattern = re.compile(
+        r'<body>\s*<ST>\s*<xhtml[^>]*>(.*?)</xhtml>\s*</ST>\s*</body>',
+        re.DOTALL
+    )
+    body_match = body_pattern.search(raw)
+    if not body_match:
+        raise ValueError("No body found in PROGRAM XML")
+    fb_body = _unescape(body_match.group(1))
+
+    return ParsedXML(
+        xml_type="PROGRAM",
+        raw_bytes=raw.encode("utf-8"),
+        fb_declaration=fb_declaration,
+        fb_body=fb_body,
+        methods=[],
+    )
+
+
+# ---------------------------------------------------------------------------
 # DUT XML parser
 # ---------------------------------------------------------------------------
 
@@ -221,14 +259,16 @@ def load_xml(path: str) -> ParsedXML:
     with open(path, "r", encoding="utf-8") as f:
         raw = f.read()
 
-    # Detect type by presence of <pou ... pouType="functionBlock">
+    # Detect type
     if re.search(r'pouType\s*=\s*"functionBlock"', raw):
         parsed = _parse_fb(raw)
+    elif re.search(r'pouType\s*=\s*"program"', raw):
+        parsed = _parse_program(raw)
     elif re.search(r'<dataType\s+name=', raw):
         parsed = _parse_dut(raw)
     else:
         raise ValueError(
-            "Unknown XML type: expected a functionBlock POU or a dataType DUT"
+            "Unknown XML type: expected a functionBlock/program POU or a dataType DUT"
         )
 
     parsed.raw_bytes = raw.encode("utf-8")
@@ -281,7 +321,7 @@ def patch_xml(parsed: ParsedXML,
     raw = parsed.raw_bytes.decode("utf-8")
 
     # ------------------------------------------------------------------ DUT
-    if parsed.xml_type == "DUT":
+    if parsed.xml_type in ("DUT",):
         ipt_xhtml = re.compile(
             r'(<InterfaceAsPlainText>\s*<xhtml[^>]*>)(.*?)'
             r'(</xhtml>\s*</InterfaceAsPlainText>)',
@@ -392,3 +432,247 @@ def patch_xml(parsed: ParsedXML,
         result = pre_section
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Build XML from scratch (no template needed)
+# ---------------------------------------------------------------------------
+
+_IEC_PRIMITIVES = {
+    'BOOL', 'BYTE', 'WORD', 'DWORD', 'LWORD',
+    'SINT', 'INT', 'DINT', 'LINT',
+    'USINT', 'UINT', 'UDINT', 'ULINT',
+    'REAL', 'LREAL',
+    'TIME', 'DATE', 'TIME_OF_DAY', 'DATE_AND_TIME',
+}
+
+
+def _return_type_tag(rt: str) -> str:
+    """Generate the XML tag for a method return type."""
+    if not rt:
+        return '<BOOL />'
+    up = rt.upper()
+    if up == 'STRING':
+        return '<string />'
+    if up == 'WSTRING':
+        return '<wstring />'
+    if up in _IEC_PRIMITIVES:
+        return f'<{up} />'
+    return f'<derived name="{rt}" />'
+
+
+def detect_st_type(st_text: str) -> tuple:
+    """
+    Detect POU type and name from ST text.
+    Returns (xml_type, pou_name).
+    """
+    m = re.search(r'^\s*FUNCTION_BLOCK\s+(\w+)', st_text, re.MULTILINE | re.IGNORECASE)
+    if m:
+        return ('FB', m.group(1))
+    m = re.search(r'^\s*PROGRAM\s+(\w+)', st_text, re.MULTILINE | re.IGNORECASE)
+    if m:
+        return ('PROGRAM', m.group(1))
+    m = re.search(r'^\s*TYPE\s+(\w+)\s*:', st_text, re.MULTILINE | re.IGNORECASE)
+    if m:
+        return ('DUT', m.group(1))
+    raise ValueError(
+        "Cannot detect POU type from ST text.\n"
+        "Expected FUNCTION_BLOCK, PROGRAM, or TYPE declaration."
+    )
+
+
+def _xml_header(now: str) -> str:
+    return f'''<?xml version="1.0" encoding="utf-8"?>
+<project xmlns="http://www.plcopen.org/xml/tc6_0200">
+  <fileHeader companyName="" productName="TwinCAT PLC Control" productVersion="3.5.21.20" creationDateTime="{now}" />
+  <contentHeader name="PLC1" modificationDateTime="{now}">
+    <coordinateInfo>
+      <fbd>
+        <scaling x="1" y="1" />
+      </fbd>
+      <ld>
+        <scaling x="1" y="1" />
+      </ld>
+      <sfc>
+        <scaling x="1" y="1" />
+      </sfc>
+    </coordinateInfo>
+    <addData>
+      <data name="http://www.3s-software.com/plcopenxml/projectinformation" handleUnknown="implementation">
+        <ProjectInformation />
+      </data>
+    </addData>
+  </contentHeader>'''
+
+
+def _build_method_block(minfo: MethodInfo, obj_id: str) -> str:
+    """Build a single <Method> XML block."""
+    rt_tag = _return_type_tag(minfo.return_type)
+    escaped_var = _escape(minfo.var_declaration)
+    escaped_body = _escape(minfo.body)
+
+    access_xml = ''
+    if minfo.access.upper() == 'PRIVATE':
+        access_xml = (
+            '\n                <addData>'
+            '\n                  <data name="http://www.3s-software.com/plcopenxml/accessmodifiers" handleUnknown="implementation">'
+            '\n                    <AccessModifiers Private="true" />'
+            '\n                  </data>'
+            '\n                </addData>'
+        )
+
+    return (
+        f'          <data name="http://www.3s-software.com/plcopenxml/method" handleUnknown="implementation">\n'
+        f'            <Method name="{minfo.name}" ObjectId="{obj_id}">\n'
+        f'              <interface>\n'
+        f'                <returnType>\n'
+        f'                  {rt_tag}\n'
+        f'                </returnType>\n'
+        f'                <localVars>\n'
+        f'                  <addData>\n'
+        f'                    <data name="http://www.3s-software.com/plcopenxml/interfaceasplaintext" handleUnknown="implementation">\n'
+        f'                      <InterfaceAsPlainText>\n'
+        f'                        <xhtml xmlns="http://www.w3.org/1999/xhtml">{escaped_var}</xhtml>\n'
+        f'                      </InterfaceAsPlainText>\n'
+        f'                    </data>\n'
+        f'                  </addData>\n'
+        f'                </localVars>{access_xml}\n'
+        f'              </interface>\n'
+        f'              <body>\n'
+        f'                <ST>\n'
+        f'                  <xhtml xmlns="http://www.w3.org/1999/xhtml">{escaped_body}</xhtml>\n'
+        f'                </ST>\n'
+        f'              </body>\n'
+        f'              <InterfaceAsPlainText>\n'
+        f'                <xhtml xmlns="http://www.w3.org/1999/xhtml">{escaped_var}</xhtml>\n'
+        f'              </InterfaceAsPlainText>\n'
+        f'              <addData />\n'
+        f'            </Method>\n'
+        f'          </data>\n'
+    )
+
+
+def build_xml_from_st(xml_type: str, pou_name: str,
+                       declaration: str, body: str,
+                       methods: list) -> str:
+    """
+    Build a complete PLCopen XML string from ST parts — no template needed.
+    The generated XML is compatible with TwinCAT 3 import.
+    """
+    now = datetime.now().strftime('%Y-%m-%dT%H:%M:%S.0000000')
+    header = _xml_header(now)
+    escaped_decl = _escape(declaration)
+
+    # ---- DUT ----
+    if xml_type == 'DUT':
+        obj_id = str(uuid.uuid4())
+        return (
+            f'{header}\n'
+            f'  <types>\n'
+            f'    <dataTypes>\n'
+            f'      <dataType name="{pou_name}">\n'
+            f'        <baseType>\n'
+            f'          <struct />\n'
+            f'        </baseType>\n'
+            f'        <addData>\n'
+            f'          <data name="http://www.3s-software.com/plcopenxml/interfaceasplaintext" handleUnknown="implementation">\n'
+            f'            <InterfaceAsPlainText>\n'
+            f'              <xhtml xmlns="http://www.w3.org/1999/xhtml">{escaped_decl}</xhtml>\n'
+            f'            </InterfaceAsPlainText>\n'
+            f'          </data>\n'
+            f'          <data name="http://www.3s-software.com/plcopenxml/objectid" handleUnknown="discard">\n'
+            f'            <ObjectId>{obj_id}</ObjectId>\n'
+            f'          </data>\n'
+            f'        </addData>\n'
+            f'      </dataType>\n'
+            f'    </dataTypes>\n'
+            f'    <pous />\n'
+            f'  </types>\n'
+            f'  <instances>\n'
+            f'    <configurations />\n'
+            f'  </instances>\n'
+            f'  <addData>\n'
+            f'    <data name="http://www.3s-software.com/plcopenxml/projectstructure" handleUnknown="discard">\n'
+            f'      <ProjectStructure>\n'
+            f'        <Object Name="{pou_name}" ObjectId="{obj_id}" />\n'
+            f'      </ProjectStructure>\n'
+            f'    </data>\n'
+            f'  </addData>\n'
+            f'</project>'
+        )
+
+    # ---- FB / PROGRAM ----
+    pou_type = 'functionBlock' if xml_type == 'FB' else 'program'
+    escaped_body = _escape(body)
+    pou_obj_id = str(uuid.uuid4())
+
+    # Build method blocks and track IDs for ProjectStructure
+    methods_xml = ''
+    method_ids = []
+    for minfo in methods:
+        m_id = str(uuid.uuid4())
+        method_ids.append((minfo.name, m_id))
+        methods_xml += _build_method_block(minfo, m_id)
+
+    # ProjectStructure object (self-closing if no children)
+    if method_ids:
+        children = ''.join(
+            f'\n          <Object Name="{n}" ObjectId="{i}" />'
+            for n, i in method_ids
+        )
+        project_obj = (
+            f'        <Object Name="{pou_name}" ObjectId="{pou_obj_id}">'
+            f'{children}\n'
+            f'        </Object>'
+        )
+    else:
+        project_obj = f'        <Object Name="{pou_name}" ObjectId="{pou_obj_id}" />'
+
+    return (
+        f'{header}\n'
+        f'  <types>\n'
+        f'    <dataTypes />\n'
+        f'    <pous>\n'
+        f'      <pou name="{pou_name}" pouType="{pou_type}">\n'
+        f'        <interface>\n'
+        f'          <localVars>\n'
+        f'            <addData>\n'
+        f'              <data name="http://www.3s-software.com/plcopenxml/interfaceasplaintext" handleUnknown="implementation">\n'
+        f'                <InterfaceAsPlainText>\n'
+        f'                  <xhtml xmlns="http://www.w3.org/1999/xhtml">{escaped_decl}</xhtml>\n'
+        f'                </InterfaceAsPlainText>\n'
+        f'              </data>\n'
+        f'            </addData>\n'
+        f'          </localVars>\n'
+        f'        </interface>\n'
+        f'        <body>\n'
+        f'          <ST>\n'
+        f'            <xhtml xmlns="http://www.w3.org/1999/xhtml">{escaped_body}</xhtml>\n'
+        f'          </ST>\n'
+        f'        </body>\n'
+        f'        <addData>\n'
+        f'{methods_xml}'
+        f'          <data name="http://www.3s-software.com/plcopenxml/interfaceasplaintext" handleUnknown="implementation">\n'
+        f'            <InterfaceAsPlainText>\n'
+        f'              <xhtml xmlns="http://www.w3.org/1999/xhtml">{escaped_decl}</xhtml>\n'
+        f'            </InterfaceAsPlainText>\n'
+        f'          </data>\n'
+        f'          <data name="http://www.3s-software.com/plcopenxml/objectid" handleUnknown="discard">\n'
+        f'            <ObjectId>{pou_obj_id}</ObjectId>\n'
+        f'          </data>\n'
+        f'        </addData>\n'
+        f'      </pou>\n'
+        f'    </pous>\n'
+        f'  </types>\n'
+        f'  <instances>\n'
+        f'    <configurations />\n'
+        f'  </instances>\n'
+        f'  <addData>\n'
+        f'    <data name="http://www.3s-software.com/plcopenxml/projectstructure" handleUnknown="discard">\n'
+        f'      <ProjectStructure>\n'
+        f'{project_obj}\n'
+        f'      </ProjectStructure>\n'
+        f'    </data>\n'
+        f'  </addData>\n'
+        f'</project>'
+    )

@@ -12,9 +12,34 @@ Divider format (machine-parseable for the splitter):
 The pipe-delimited header line carries metadata for round-trip reconstruction.
 """
 
+import re
+
 from xml_parser import ParsedXML, MethodInfo
 
 DIVIDER = "// " + "=" * 60
+
+_VAR_OPEN  = re.compile(r'^\s*(VAR_INPUT|VAR_OUTPUT|VAR_IN_OUT|VAR_GLOBAL|VAR_EXTERNAL|VAR)\s*$', re.IGNORECASE)
+_VAR_CLOSE = re.compile(r'^\s*END_VAR\s*$', re.IGNORECASE)
+
+
+def _indent_var_blocks(text: str) -> str:
+    """Ensure every variable line inside a VAR block is indented with 4 spaces."""
+    lines = text.split('\n')
+    result = []
+    in_var = False
+    for line in lines:
+        if _VAR_OPEN.match(line):
+            in_var = True
+            result.append(line)
+        elif _VAR_CLOSE.match(line):
+            in_var = False
+            result.append(line)
+        elif in_var and line.strip() and not line.startswith('    '):
+            result.append('    ' + line.lstrip())
+        else:
+            result.append(line)
+    return '\n'.join(result)
+
 
 def _method_header(minfo: MethodInfo) -> str:
     """Single comment line encoding method metadata."""
@@ -48,12 +73,13 @@ def format_st(parsed: ParsedXML) -> str:
 
     parts = []
 
-    # FB declaration (VAR_INPUT / VAR_OUTPUT / VAR blocks)
-    parts.append(parsed.fb_declaration.rstrip())
+    # Declaration block (normalise VAR indentation if source has none)
+    parts.append(_indent_var_blocks(parsed.fb_declaration.rstrip()))
 
-    # FB body
+    # Body marker — differs by POU type so the editor label is meaningful
+    body_marker = "// === PROGRAM Body ===" if parsed.xml_type == "PROGRAM" else "// === FB Body ==="
     parts.append("")
-    parts.append("// === FB Body ===")
+    parts.append(body_marker)
     parts.append(parsed.fb_body.rstrip())
 
     # Methods — body is NOT stripped so whitespace round-trips exactly.
@@ -63,7 +89,7 @@ def format_st(parsed: ParsedXML) -> str:
         parts.append(DIVIDER)
         parts.append(_method_header(minfo))
         parts.append(DIVIDER)
-        var_decl = minfo.var_declaration.strip()
+        var_decl = _indent_var_blocks(minfo.var_declaration.strip())
         if var_decl:
             parts.append(var_decl)
         # Append body preserving original whitespace (leading \n gives blank line)
