@@ -1,0 +1,111 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<project xmlns="http://www.plcopen.org/xml/tc6_0200">
+  <fileHeader companyName="Beckhoff Automation GmbH" productName="TwinCAT PLC Control" productVersion="3.5.21.20" creationDateTime="2026-02-22T16:42:22.4417689" />
+  <contentHeader name="PLC1" modificationDateTime="2026-02-22T16:42:22.4417689">
+    <coordinateInfo>
+      <fbd>
+        <scaling x="1" y="1" />
+      </fbd>
+      <ld>
+        <scaling x="1" y="1" />
+      </ld>
+      <sfc>
+        <scaling x="1" y="1" />
+      </sfc>
+    </coordinateInfo>
+    <addData>
+      <data name="http://www.3s-software.com/plcopenxml/projectinformation" handleUnknown="implementation">
+        <ProjectInformation />
+      </data>
+    </addData>
+  </contentHeader>
+  <types>
+    <dataTypes>
+      <dataType name="ST_BatchMetadata">
+        <baseType>
+          <struct>
+            <variable name="sOrderNumberSAP">
+              <type>
+                <string />
+              </type>
+              <initialValue>
+                <simpleValue value="'14963766'" />
+              </initialValue>
+            </variable>
+            <variable name="sFactory">
+              <type>
+                <string />
+              </type>
+              <initialValue>
+                <simpleValue value="'BJ04'" />
+              </initialValue>
+            </variable>
+            <variable name="nDepartment">
+              <type>
+                <DINT />
+              </type>
+              <initialValue>
+                <simpleValue value="5541" />
+              </initialValue>
+            </variable>
+            <variable name="nWorkcenter">
+              <type>
+                <DINT />
+              </type>
+              <initialValue>
+                <simpleValue value="5349" />
+              </initialValue>
+            </variable>
+            <variable name="sEquipmentId">
+              <type>
+                <string />
+              </type>
+              <initialValue>
+                <simpleValue value="'588555'" />
+              </initialValue>
+            </variable>
+          </struct>
+        </baseType>
+        <addData>
+          <data name="http://www.3s-software.com/plcopenxml/interfaceasplaintext" handleUnknown="implementation">
+            <InterfaceAsPlainText>
+              <xhtml xmlns="http://www.w3.org/1999/xhtml">(* 
+    DUT: ST_BatchMetadata
+    Description: Contains administrative information about the production order.
+*)
+TYPE ST_BatchMetadata :
+STRUCT
+    sOrderNumberSAP : STRING := '14963766'; 
+    sFactory        : STRING := 'BJ04';     
+    nDepartment     : DINT := 5541;         
+    nWorkcenter     : DINT := 5349;         
+    sEquipmentId    : STRING := '588555';         
+END_STRUCT
+END_TYPE</xhtml>
+            </InterfaceAsPlainText>
+          </data>
+          <data name="http://www.3s-software.com/plcopenxml/objectid" handleUnknown="discard">
+            <ObjectId>1fde3db1-e10d-43ba-afd3-180f15278c7d</ObjectId>
+          </data>
+        </addData>
+        <documentation>
+          <xhtml xmlns="http://www.w3.org/1999/xhtml"> 
+    DUT: ST_BatchMetadata
+    Description: Contains administrative information about the production order.
+</xhtml>
+        </documentation>
+      </dataType>
+    </dataTypes>
+    <pous />
+  </types>
+  <instances>
+    <configurations />
+  </instances>
+  <addData>
+    <data name="http://www.3s-software.com/plcopenxml/projectstructure" handleUnknown="discard">
+      <ProjectStructure>
+        <Object Name="ST_BatchMetadata" ObjectId="1fde3db1-e10d-43ba-afd3-180f15278c7d" />
+      </ProjectStructure>
+    </data>
+  </addData>
+</project>

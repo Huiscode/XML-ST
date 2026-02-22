@@ -1,0 +1,394 @@
+"""
+xml_parser.py
+-------------
+Loads TwinCAT 3 PLCopen XML exports, extracts editable ST content,
+and patches modified ST content back — preserving the exact original
+XML bytes for round-trip fidelity.
+
+Supports two XML types:
+  - FB  (Function Block):  <pous><pou pouType="functionBlock">
+  - DUT (Data Type/Struct): <dataTypes><dataType>
+"""
+
+import re
+import html
+from dataclasses import dataclass, field
+from typing import Optional
+
+
+# ---------------------------------------------------------------------------
+# Data structures
+# ---------------------------------------------------------------------------
+
+@dataclass
+class MethodInfo:
+    name: str
+    access: str          # "PRIVATE", "PUBLIC", etc.
+    return_type: str     # e.g. "STRING", "BOOL"
+    var_declaration: str # VAR ... END_VAR block text
+    body: str            # ST body code
+
+
+@dataclass
+class ParsedXML:
+    xml_type: str            # "FB" or "DUT"
+    raw_bytes: bytes         # original file bytes (UTF-8)
+
+    # FB fields
+    fb_declaration: str = ""   # full FUNCTION_BLOCK ... END_VAR text
+    fb_body: str = ""          # main body ST code
+    methods: list = field(default_factory=list)  # list[MethodInfo]
+
+    # DUT fields
+    dut_declaration: str = ""  # full TYPE ... END_TYPE text
+
+
+# ---------------------------------------------------------------------------
+# XML entity helpers
+# ---------------------------------------------------------------------------
+
+def _unescape(text: str) -> str:
+    """Convert XML entities in xhtml content to plain text characters."""
+    return (text
+            .replace("&amp;", "&")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&apos;", "'")
+            .replace("&quot;", '"'))
+
+
+def _escape(text: str) -> str:
+    """Escape plain text characters for embedding inside XML xhtml nodes."""
+    return (text
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;"))
+
+
+# ---------------------------------------------------------------------------
+# Low-level xhtml node extractor  (works on raw XML string)
+# ---------------------------------------------------------------------------
+
+def _extract_xhtml_blocks(raw: str) -> list[tuple[int, int, str]]:
+    """
+    Find all <xhtml ...>...</xhtml> blocks.
+    Returns list of (start_idx, end_idx, content) where start/end span
+    the full tag including <xhtml> and </xhtml>.
+    """
+    results = []
+    # Match opening tag (may have namespace attr)
+    pattern = re.compile(r'<xhtml(?:[^>]*)>(.*?)</xhtml>', re.DOTALL)
+    for m in pattern.finditer(raw):
+        results.append((m.start(), m.end(), m.group(1)))
+    return results
+
+
+# ---------------------------------------------------------------------------
+# FB XML parser
+# ---------------------------------------------------------------------------
+
+def _parse_fb(raw: str) -> ParsedXML:
+    """Parse a Function Block XML export."""
+
+    # ------------------------------------------------------------------
+    # 1. Extract the FB interface declaration (InterfaceAsPlainText)
+    #    The first InterfaceAsPlainText in the file is the canonical one.
+    # ------------------------------------------------------------------
+    ipt_pattern = re.compile(
+        r'<InterfaceAsPlainText>\s*<xhtml[^>]*>(.*?)</xhtml>\s*</InterfaceAsPlainText>',
+        re.DOTALL
+    )
+    ipt_matches = list(ipt_pattern.finditer(raw))
+    if not ipt_matches:
+        raise ValueError("No InterfaceAsPlainText found in FB XML")
+
+    fb_declaration = _unescape(ipt_matches[0].group(1))
+
+    # ------------------------------------------------------------------
+    # 2. Extract the FB body  (<body><ST><xhtml>...</xhtml></ST></body>)
+    # ------------------------------------------------------------------
+    body_pattern = re.compile(
+        r'<body>\s*<ST>\s*<xhtml[^>]*>(.*?)</xhtml>\s*</ST>\s*</body>',
+        re.DOTALL
+    )
+    body_match = body_pattern.search(raw)
+    if not body_match:
+        raise ValueError("No FB body found in XML")
+    fb_body = _unescape(body_match.group(1))
+
+    # ------------------------------------------------------------------
+    # 3. Extract methods — match <Method name="...">...</Method> directly.
+    #    This avoids the nested-</data> ambiguity problem.
+    # ------------------------------------------------------------------
+    method_block_pattern = re.compile(
+        r'<Method\s+name="([^"]+)"[^>]*>(.*?)</Method>',
+        re.DOTALL
+    )
+
+    methods = []
+    for mb_match in method_block_pattern.finditer(raw):
+        name = mb_match.group(1)
+        method_block = mb_match.group(2)
+
+        # Access modifier — look inside <interface><addData>
+        access = "PUBLIC"
+        priv_m = re.search(r'<AccessModifiers\s+Private="true"', method_block)
+        if priv_m:
+            access = "PRIVATE"
+
+        # Return type — extracted from <returnType>
+        rt_m = re.search(r'<returnType>\s*(.*?)\s*</returnType>', method_block, re.DOTALL)
+        return_type = ""
+        if rt_m:
+            rt_inner = rt_m.group(1).strip()
+            if re.search(r'<string\s*/>', rt_inner, re.IGNORECASE):
+                return_type = "STRING"
+            elif re.search(r'<BOOL\s*/>', rt_inner):
+                return_type = "BOOL"
+            else:
+                der_m = re.search(r'<derived\s+name="([^"]+)"', rt_inner)
+                if der_m:
+                    return_type = der_m.group(1)
+                else:
+                    tag_m = re.search(r'<(\w+)\s*/>', rt_inner)
+                    if tag_m:
+                        return_type = tag_m.group(1)
+
+        # Method InterfaceAsPlainText  (METHOD PRIVATE X : TYPE\nVAR...\nEND_VAR)
+        # There are two: one inside <interface><addData> and one top-level.
+        # Use the first occurrence.
+        m_ipt = re.search(
+            r'<InterfaceAsPlainText>\s*<xhtml[^>]*>(.*?)</xhtml>\s*</InterfaceAsPlainText>',
+            method_block, re.DOTALL
+        )
+        var_declaration = _unescape(m_ipt.group(1)) if m_ipt else ""
+
+        # Method body — <body><ST><xhtml>...</xhtml></ST></body>
+        m_body = re.search(
+            r'<body>\s*<ST>\s*<xhtml[^>]*>(.*?)</xhtml>\s*</ST>\s*</body>',
+            method_block, re.DOTALL
+        )
+        body = _unescape(m_body.group(1)) if m_body else ""
+
+        methods.append(MethodInfo(
+            name=name,
+            access=access,
+            return_type=return_type,
+            var_declaration=var_declaration,
+            body=body,
+        ))
+
+    return ParsedXML(
+        xml_type="FB",
+        raw_bytes=raw.encode("utf-8"),
+        fb_declaration=fb_declaration,
+        fb_body=fb_body,
+        methods=methods,
+    )
+
+
+# ---------------------------------------------------------------------------
+# DUT XML parser
+# ---------------------------------------------------------------------------
+
+def _parse_dut(raw: str) -> ParsedXML:
+    """Parse a DUT (Data Type / Struct) XML export."""
+
+    ipt_pattern = re.compile(
+        r'<InterfaceAsPlainText>\s*<xhtml[^>]*>(.*?)</xhtml>\s*</InterfaceAsPlainText>',
+        re.DOTALL
+    )
+    ipt_match = ipt_pattern.search(raw)
+    if not ipt_match:
+        raise ValueError("No InterfaceAsPlainText found in DUT XML")
+
+    return ParsedXML(
+        xml_type="DUT",
+        raw_bytes=raw.encode("utf-8"),
+        dut_declaration=_unescape(ipt_match.group(1)),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Public load function
+# ---------------------------------------------------------------------------
+
+def load_xml(path: str) -> ParsedXML:
+    """
+    Load a TwinCAT PLCopen XML file and return a ParsedXML object.
+    Detects FB vs DUT automatically.
+    """
+    with open(path, "r", encoding="utf-8") as f:
+        raw = f.read()
+
+    # Detect type by presence of <pou ... pouType="functionBlock">
+    if re.search(r'pouType\s*=\s*"functionBlock"', raw):
+        parsed = _parse_fb(raw)
+    elif re.search(r'<dataType\s+name=', raw):
+        parsed = _parse_dut(raw)
+    else:
+        raise ValueError(
+            "Unknown XML type: expected a functionBlock POU or a dataType DUT"
+        )
+
+    parsed.raw_bytes = raw.encode("utf-8")
+    return parsed
+
+
+# ---------------------------------------------------------------------------
+# Patch functions — return new XML string with updated ST content
+# ---------------------------------------------------------------------------
+
+def _replace_xhtml_content(raw: str, pattern: re.Pattern, new_content: str,
+                            count: int = 1) -> str:
+    """
+    Replace the inner content of xhtml nodes matched by pattern.
+    Replaces exactly `count` occurrences (use count=0 for all).
+    """
+    replaced = 0
+
+    def replacer(m):
+        nonlocal replaced
+        if count == 0 or replaced < count:
+            replaced += 1
+            # Reconstruct: opening tag + new content + closing tag
+            full = m.group(0)
+            # Find where content starts (after >) and ends (before </xhtml>)
+            open_end = full.index('>') + 1
+            close_start = full.rindex('</xhtml>')
+            return full[:open_end] + _escape(new_content) + full[close_start:]
+        return m.group(0)
+
+    return pattern.sub(replacer, raw)
+
+
+def patch_xml(parsed: ParsedXML,
+              new_declaration: str,
+              new_body: str,
+              new_methods: list) -> str:
+    """
+    Given updated ST content, patch it back into the original XML string.
+
+    Strategy (for exact round-trip):
+      - Split raw XML at the first <Method name= tag.
+      - Patch the FB InterfaceAsPlainText blocks (all identical) in the PRE section.
+      - Patch the FB body in the PRE section.
+      - Patch each <Method>...</Method> block individually.
+      - Recombine.
+
+    For DUT: only the single InterfaceAsPlainText is patched.
+    """
+    raw = parsed.raw_bytes.decode("utf-8")
+
+    # ------------------------------------------------------------------ DUT
+    if parsed.xml_type == "DUT":
+        ipt_xhtml = re.compile(
+            r'(<InterfaceAsPlainText>\s*<xhtml[^>]*>)(.*?)'
+            r'(</xhtml>\s*</InterfaceAsPlainText>)',
+            re.DOTALL
+        )
+        escaped_decl = _escape(new_declaration)
+        patched, n = ipt_xhtml.subn(
+            lambda m: m.group(1) + escaped_decl + m.group(3),
+            raw, count=1
+        )
+        return patched
+
+    # ------------------------------------------------------------------ FB
+    # Split raw XML into:
+    #   pre_section  — everything before the first <Method name=
+    #   method_tags  — list of (full_method_string) in order
+    #   post_section — everything after the last </Method>
+
+    method_spans = [(m.start(), m.end())
+                    for m in re.finditer(r'<Method\s+name="[^"]+"[^>]*>.*?</Method>',
+                                         raw, re.DOTALL)]
+
+    if not method_spans:
+        # No methods — patch FB declaration + body in the whole document
+        pre_section = raw
+        post_section = ""
+        method_raws = []
+    else:
+        pre_section  = raw[:method_spans[0][0]]
+        post_section = raw[method_spans[-1][1]:]
+        method_raws  = [raw[s:e] for s, e in method_spans]
+
+    # --- Patch FB InterfaceAsPlainText (ALL occurrences in pre_section) ---
+    ipt_xhtml = re.compile(
+        r'(<InterfaceAsPlainText>\s*<xhtml[^>]*>)(.*?)'
+        r'(</xhtml>\s*</InterfaceAsPlainText>)',
+        re.DOTALL
+    )
+    escaped_decl = _escape(new_declaration)
+    pre_section = ipt_xhtml.sub(
+        lambda m: m.group(1) + escaped_decl + m.group(3),
+        pre_section
+    )
+
+    # --- Patch FB body (first <body><ST><xhtml> in pre_section) ---
+    body_xhtml = re.compile(
+        r'(<body>\s*<ST>\s*<xhtml[^>]*>)(.*?)(</xhtml>\s*</ST>\s*</body>)',
+        re.DOTALL
+    )
+    escaped_body = _escape(new_body)
+    pre_section, _ = body_xhtml.subn(
+        lambda m: m.group(1) + escaped_body + m.group(3),
+        pre_section, count=1
+    )
+
+    # --- Patch each Method block ---
+    patched_methods = []
+    for idx, method_raw in enumerate(method_raws):
+        if idx < len(new_methods):
+            minfo = new_methods[idx]
+            escaped_var  = _escape(minfo.var_declaration)
+            escaped_mbody = _escape(minfo.body)
+
+            # Replace all InterfaceAsPlainText inside this method
+            method_raw = ipt_xhtml.sub(
+                lambda m: m.group(1) + escaped_var + m.group(3),
+                method_raw
+            )
+
+            # Replace the method body (<body><ST><xhtml>)
+            method_raw, _ = body_xhtml.subn(
+                lambda m: m.group(1) + escaped_mbody + m.group(3),
+                method_raw, count=1
+            )
+
+            # Replace the top-level <InterfaceAsPlainText> that appears AFTER </body>
+            # inside the Method block (some TwinCAT versions add a second one)
+            top_ipt = re.compile(
+                r'(</body>\s*<InterfaceAsPlainText>\s*<xhtml[^>]*>)(.*?)'
+                r'(</xhtml>\s*</InterfaceAsPlainText>)',
+                re.DOTALL
+            )
+            method_raw = top_ipt.sub(
+                lambda m: m.group(1) + escaped_var + m.group(3),
+                method_raw
+            )
+
+        patched_methods.append(method_raw)
+
+    # Reconstruct: pre + methods (interleaved with their surrounding XML) + post
+    # We need to also preserve the XML between/around the method blocks
+    if method_spans:
+        # Collect the gaps between method blocks
+        between = []
+        prev_end = method_spans[0][0]  # pre_section ends here
+        for i, (s, e) in enumerate(method_spans):
+            if i > 0:
+                between.append(raw[method_spans[i-1][1]:s])
+
+        # Rebuild: pre + (gap + method) * n + post
+        result = pre_section
+        for i, pm in enumerate(patched_methods):
+            if i > 0:
+                result += between[i - 1]
+            result += pm
+        result += post_section
+    else:
+        result = pre_section
+
+    return result

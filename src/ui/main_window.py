@@ -1,0 +1,367 @@
+"""
+main_window.py
+--------------
+Main application window.
+Layout: header bar | horizontal split (ST editor | XML preview) | status bar
+"""
+
+import os
+import sys
+import tkinter as tk
+from tkinter import ttk, filedialog, messagebox
+
+# Ensure src/ is on the path when run from ui/
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+from xml_parser import load_xml, patch_xml, ParsedXML
+from st_formatter import format_st
+from st_splitter import split_st
+from ui.editor_widget import STEditor
+
+
+# ---------------------------------------------------------------------------
+# Colour palette  (dark industrial theme — Beckhoff-ish)
+# ---------------------------------------------------------------------------
+PALETTE = {
+    "bg":           "#1e1e2e",   # deep blue-black
+    "panel":        "#252536",   # slightly lighter panel
+    "border":       "#3a3a5c",   # separator colour
+    "accent":       "#00b4d8",   # cyan accent (Beckhoff blue)
+    "accent2":      "#90e0ef",   # lighter accent
+    "btn":          "#00b4d8",
+    "btn_hover":    "#0096c7",
+    "btn_text":     "#ffffff",
+    "text_primary": "#cdd6f4",
+    "text_muted":   "#888aac",
+    "success":      "#a6e3a1",
+    "warning":      "#f9e2af",
+    "error":        "#f38ba8",
+    "xml_bg":       "#1a1a2e",
+}
+
+
+class MainWindow:
+    def __init__(self, root: tk.Tk):
+        self.root = root
+        self.root.title("TwinCAT XML ↔ ST Converter")
+        self.root.configure(bg=PALETTE["bg"])
+        self.root.geometry("1400x860")
+        self.root.minsize(900, 600)
+
+        self._parsed: ParsedXML | None = None
+        self._current_path: str = ""
+
+        self._build_ui()
+        self._bind_shortcuts()
+
+    # ------------------------------------------------------------------
+    # UI construction
+    # ------------------------------------------------------------------
+
+    def _build_ui(self):
+        # ---- Top header bar ----
+        header = tk.Frame(self.root, bg=PALETTE["bg"], pady=8)
+        header.pack(side=tk.TOP, fill=tk.X, padx=12)
+
+        # Logo / title label
+        tk.Label(
+            header, text="TwinCAT  XML ↔ ST  Converter",
+            font=("Segoe UI", 14, "bold"),
+            fg=PALETTE["accent"], bg=PALETTE["bg"]
+        ).pack(side=tk.LEFT)
+
+        # Type badge (FB / DUT)
+        self._type_badge = tk.Label(
+            header, text="", width=6,
+            font=("Segoe UI", 10, "bold"),
+            fg=PALETTE["btn_text"], bg=PALETTE["border"],
+            relief="flat", padx=6, pady=2
+        )
+        self._type_badge.pack(side=tk.LEFT, padx=(14, 0))
+
+        # Buttons on the right
+        btn_frame = tk.Frame(header, bg=PALETTE["bg"])
+        btn_frame.pack(side=tk.RIGHT)
+
+        self._btn_open   = self._make_btn(btn_frame, "Open XML",      self._open_file,     icon="📂")
+        self._btn_to_xml = self._make_btn(btn_frame, "ST → XML",      self._convert_to_xml, icon="⚙", state=tk.DISABLED)
+        self._btn_save   = self._make_btn(btn_frame, "Save XML",      self._save_xml,       icon="💾", state=tk.DISABLED)
+        self._btn_copy   = self._make_btn(btn_frame, "Copy XML",      self._copy_xml,       icon="📋", state=tk.DISABLED)
+
+        for b in (self._btn_open, self._btn_to_xml, self._btn_save, self._btn_copy):
+            b.pack(side=tk.LEFT, padx=4)
+
+        # ---- File path bar ----
+        path_bar = tk.Frame(self.root, bg=PALETTE["panel"], pady=4)
+        path_bar.pack(side=tk.TOP, fill=tk.X, padx=12)
+
+        tk.Label(path_bar, text="File:", fg=PALETTE["text_muted"],
+                 bg=PALETTE["panel"], font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=6)
+        self._path_var = tk.StringVar(value="No file loaded")
+        tk.Label(path_bar, textvariable=self._path_var,
+                 fg=PALETTE["text_primary"], bg=PALETTE["panel"],
+                 font=("Consolas", 9), anchor="w").pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        # ---- Separator ----
+        ttk.Separator(self.root, orient="horizontal").pack(fill=tk.X, padx=0, pady=0)
+
+        # ---- Column headers ----
+        col_header = tk.Frame(self.root, bg=PALETTE["bg"])
+        col_header.pack(side=tk.TOP, fill=tk.X, padx=12, pady=(6, 0))
+
+        self._st_col_label = tk.Label(
+            col_header, text="Structured Text  (editable)",
+            font=("Segoe UI", 10, "bold"), fg=PALETTE["accent2"], bg=PALETTE["bg"]
+        )
+        self._st_col_label.pack(side=tk.LEFT)
+
+        self._xml_col_label = tk.Label(
+            col_header, text="XML Preview  (read-only)",
+            font=("Segoe UI", 10, "bold"), fg=PALETTE["text_muted"], bg=PALETTE["bg"]
+        )
+        self._xml_col_label.pack(side=tk.RIGHT)
+
+        # ---- Main horizontal split pane ----
+        pane = tk.PanedWindow(self.root, orient=tk.HORIZONTAL,
+                              bg=PALETTE["border"], sashwidth=5,
+                              sashrelief="flat", sashpad=0)
+        pane.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=12, pady=6)
+
+        # Left: ST editor
+        left_frame = tk.Frame(pane, bg=PALETTE["panel"])
+        self._st_editor = STEditor(left_frame, PALETTE)
+        self._st_editor.pack(fill=tk.BOTH, expand=True)
+        pane.add(left_frame, minsize=400, stretch="always")
+
+        # Right: XML viewer
+        right_frame = tk.Frame(pane, bg=PALETTE["panel"])
+        self._xml_view = self._build_xml_viewer(right_frame)
+        right_frame.pack_propagate(False)
+        pane.add(right_frame, minsize=300, stretch="always")
+
+        # Set initial sash position after window is drawn
+        self.root.after(100, lambda: pane.sash_place(0, 720, 0))
+
+        # ---- Status bar ----
+        status_bar = tk.Frame(self.root, bg=PALETTE["panel"], pady=4)
+        status_bar.pack(side=tk.BOTTOM, fill=tk.X)
+
+        self._status_var = tk.StringVar(value="Ready — open an XML file to begin.")
+        self._status_lbl = tk.Label(
+            status_bar, textvariable=self._status_var,
+            fg=PALETTE["text_primary"], bg=PALETTE["panel"],
+            font=("Segoe UI", 9), anchor="w", padx=10
+        )
+        self._status_lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        # Shortcut hint on the right of status bar
+        tk.Label(
+            status_bar, text="Ctrl+O  Open   |   Ctrl+Return  Convert   |   Ctrl+S  Save",
+            fg=PALETTE["text_muted"], bg=PALETTE["panel"],
+            font=("Segoe UI", 8), padx=10
+        ).pack(side=tk.RIGHT)
+
+        # Buffer for the current patched XML output
+        self._output_xml: str = ""
+
+    def _build_xml_viewer(self, parent: tk.Frame) -> tk.Text:
+        """Read-only XML preview pane with horizontal + vertical scrollbars."""
+        frame = tk.Frame(parent, bg=PALETTE["xml_bg"])
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        vsb = ttk.Scrollbar(frame, orient="vertical")
+        hsb = ttk.Scrollbar(frame, orient="horizontal")
+        txt = tk.Text(
+            frame,
+            font=("Consolas", 9),
+            bg=PALETTE["xml_bg"],
+            fg="#9ece6a",        # XML green tint
+            insertbackground=PALETTE["accent"],
+            selectbackground=PALETTE["border"],
+            wrap=tk.NONE,
+            state=tk.DISABLED,
+            relief="flat",
+            yscrollcommand=vsb.set,
+            xscrollcommand=hsb.set,
+            padx=8, pady=8,
+        )
+        vsb.config(command=txt.yview)
+        hsb.config(command=txt.xview)
+
+        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+        hsb.pack(side=tk.BOTTOM, fill=tk.X)
+        txt.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        return txt
+
+    def _make_btn(self, parent, text, command, icon="", state=tk.NORMAL):
+        label = f"{icon}  {text}" if icon else text
+        btn = tk.Button(
+            parent,
+            text=label,
+            command=command,
+            state=state,
+            font=("Segoe UI", 9, "bold"),
+            fg=PALETTE["btn_text"],
+            bg=PALETTE["btn"],
+            activeforeground=PALETTE["btn_text"],
+            activebackground=PALETTE["btn_hover"],
+            relief="flat",
+            padx=12, pady=5,
+            cursor="hand2",
+        )
+        btn.bind("<Enter>", lambda e: btn.config(bg=PALETTE["btn_hover"]))
+        btn.bind("<Leave>", lambda e: btn.config(bg=PALETTE["btn"]))
+        return btn
+
+    # ------------------------------------------------------------------
+    # Keyboard shortcuts
+    # ------------------------------------------------------------------
+
+    def _bind_shortcuts(self):
+        self.root.bind("<Control-o>", lambda e: self._open_file())
+        self.root.bind("<Control-O>", lambda e: self._open_file())
+        self.root.bind("<Control-Return>", lambda e: self._convert_to_xml())
+        self.root.bind("<Control-s>", lambda e: self._save_xml())
+        self.root.bind("<Control-S>", lambda e: self._save_xml())
+
+    # ------------------------------------------------------------------
+    # Actions
+    # ------------------------------------------------------------------
+
+    def _open_file(self):
+        path = filedialog.askopenfilename(
+            title="Open TwinCAT XML Export",
+            filetypes=[("PLCopen XML", "*.xml"), ("All files", "*.*")],
+            initialdir=os.path.dirname(self._current_path) if self._current_path else "."
+        )
+        if not path:
+            return
+        self._load(path)
+
+    def _load(self, path: str):
+        try:
+            self._parsed = load_xml(path)
+        except Exception as exc:
+            self._set_status(f"Error loading file: {exc}", error=True)
+            messagebox.showerror("Load Error", str(exc))
+            return
+
+        self._current_path = path
+        self._path_var.set(path)
+
+        # Update type badge
+        badge_color = "#4a90d9" if self._parsed.xml_type == "FB" else "#7e57c2"
+        self._type_badge.config(
+            text=f"  {self._parsed.xml_type}  ",
+            bg=badge_color
+        )
+
+        # Populate ST editor
+        st_text = format_st(self._parsed)
+        self._st_editor.set_text(st_text)
+
+        # Clear XML view (not yet converted)
+        self._set_xml_view("")
+        self._output_xml = ""
+
+        # Enable buttons
+        self._btn_to_xml.config(state=tk.NORMAL)
+        self._btn_save.config(state=tk.DISABLED)
+        self._btn_copy.config(state=tk.DISABLED)
+
+        fname = os.path.basename(path)
+        self._set_status(
+            f"Loaded  {fname}  [{self._parsed.xml_type}] — "
+            f"Edit ST then click ⚙ ST → XML to convert."
+        )
+
+    def _convert_to_xml(self):
+        if self._parsed is None:
+            return
+
+        st_text = self._st_editor.get_text()
+        try:
+            split = split_st(st_text, self._parsed.xml_type)
+        except Exception as exc:
+            self._set_status(f"Parse error: {exc}", error=True)
+            messagebox.showerror("ST Parse Error", str(exc))
+            return
+
+        try:
+            if self._parsed.xml_type == "DUT":
+                patched = patch_xml(
+                    self._parsed,
+                    new_declaration=split.declaration,
+                    new_body="",
+                    new_methods=[],
+                )
+            else:
+                patched = patch_xml(
+                    self._parsed,
+                    new_declaration=split.declaration,
+                    new_body=split.body,
+                    new_methods=split.methods,
+                )
+        except Exception as exc:
+            self._set_status(f"XML patch error: {exc}", error=True)
+            messagebox.showerror("XML Patch Error", str(exc))
+            return
+
+        self._output_xml = patched
+        self._set_xml_view(patched)
+        self._btn_save.config(state=tk.NORMAL)
+        self._btn_copy.config(state=tk.NORMAL)
+        self._set_status("Conversion complete — review XML, then Save.", success=True)
+
+    def _save_xml(self):
+        if not self._output_xml:
+            self._set_status("Nothing to save — run ST → XML first.", warning=True)
+            return
+
+        initial = self._current_path or "output.xml"
+        path = filedialog.asksaveasfilename(
+            title="Save XML",
+            defaultextension=".xml",
+            filetypes=[("PLCopen XML", "*.xml"), ("All files", "*.*")],
+            initialfile=os.path.basename(initial),
+            initialdir=os.path.dirname(initial),
+        )
+        if not path:
+            return
+
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(self._output_xml)
+            self._set_status(f"Saved → {path}", success=True)
+        except Exception as exc:
+            self._set_status(f"Save error: {exc}", error=True)
+            messagebox.showerror("Save Error", str(exc))
+
+    def _copy_xml(self):
+        if not self._output_xml:
+            return
+        self.root.clipboard_clear()
+        self.root.clipboard_append(self._output_xml)
+        self._set_status("XML copied to clipboard.", success=True)
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _set_xml_view(self, text: str):
+        self._xml_view.config(state=tk.NORMAL)
+        self._xml_view.delete("1.0", tk.END)
+        if text:
+            self._xml_view.insert("1.0", text)
+        self._xml_view.config(state=tk.DISABLED)
+
+    def _set_status(self, msg: str, error=False, success=False, warning=False):
+        color = PALETTE["text_primary"]
+        if error:
+            color = PALETTE["error"]
+        elif success:
+            color = PALETTE["success"]
+        elif warning:
+            color = PALETTE["warning"]
+        self._status_var.set(msg)
+        self._status_lbl.config(fg=color)
