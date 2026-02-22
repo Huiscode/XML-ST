@@ -117,7 +117,20 @@ Example: `ST_BatchMetadata.xml`
 - Default filename and directory are pre-filled from the original file path
 
 ### F7 — Copy XML
-- Copies the full XML string to the system clipboard
+- Copies the full patched XML string to the system clipboard
+- Button enabled only after "ST → XML" conversion has been run
+
+### F8 — Copy ST
+- Copies the current ST editor text to the system clipboard
+- Button enabled immediately after a file is loaded (no conversion required)
+- Shortcut: `Ctrl+T`
+- Allows quick paste of ST into external editors, documentation, or code review tools
+
+### F9 — Clear All
+- Resets the application to its initial empty state
+- Clears the ST editor, XML preview, path bar, and type badge
+- Disables all action buttons (except Open XML)
+- Button enabled after a file is loaded
 
 ---
 
@@ -144,6 +157,8 @@ Example: `ST_BatchMetadata.xml`
 - [x] Syntax highlighting covers IEC 61131-3 keywords, comments, strings
 - [x] App launches with optional CLI file argument: `python src/main.py file.xml`
 - [x] No external dependencies — ships as a folder of `.py` files
+- [x] Copy ST button copies editor text to clipboard immediately after file load (`Ctrl+T`)
+- [x] Clear All button resets app to initial state (enabled after file load)
 
 ---
 
